@@ -17,15 +17,12 @@ dotenv.config()
 
 // Constants
 const ENDPOINT = process.env.GRPC_ENDPOINT!;
-const TOKEN = process.env.GRPC_TOKEN!;
 const PUMP_FUN_PROGRAM_ID = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
-const PUMP_FUN_CREATE_IX_DISCRIMINATOR = Buffer.from([24, 30, 200, 40, 5, 28, 7, 119]);
 const PUMP_FUN_BUY_IX_DISCRIMINATOR = Buffer.from([102, 6, 61, 18, 1, 218, 235, 234]);
 const COMMITMENT = CommitmentLevel.PROCESSED;
 
 const solanaConnection = new Connection(process.env.RPC_ENDPOINT!, 'confirmed');
 const keypair = Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY!));
-const amount = process.env.BUY_AMOUNT;
 
 const TARGET_ADDRESS = process.env.TARGET_ADDRESS!;
 const PURCHASE_PERCENT = Number(process.env.PURCHASE_PERCENT!);
@@ -49,7 +46,7 @@ const FILTER_CONFIG = {
 
 // Main function
 async function main(): Promise<void> {
-    const client = new Client(ENDPOINT, TOKEN, {});
+    const client = new Client(ENDPOINT, undefined, {});
     const stream = await client.subscribe();
     const request = createSubscribeRequest();
 
