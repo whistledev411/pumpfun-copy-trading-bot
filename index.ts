@@ -12,17 +12,21 @@ import bs58 from 'bs58';
 import buyToken from "./pumputils/utils/buyToken";
 import dotenv from 'dotenv';
 import { formatDate } from "./utils/commonFunc";
+import fs from 'fs'
 
 dotenv.config()
 
 // Constants
 const ENDPOINT = process.env.GRPC_ENDPOINT!;
+const TOKEN = process.env.GRPC_TOKEN!;
 const PUMP_FUN_PROGRAM_ID = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
+const PUMP_FUN_CREATE_IX_DISCRIMINATOR = Buffer.from([24, 30, 200, 40, 5, 28, 7, 119]);
 const PUMP_FUN_BUY_IX_DISCRIMINATOR = Buffer.from([102, 6, 61, 18, 1, 218, 235, 234]);
 const COMMITMENT = CommitmentLevel.PROCESSED;
 
 const solanaConnection = new Connection(process.env.RPC_ENDPOINT!, 'confirmed');
 const keypair = Keypair.fromSecretKey(bs58.decode(process.env.PRIVATE_KEY!));
+const amount = process.env.BUY_AMOUNT;
 
 const TARGET_ADDRESS = process.env.TARGET_ADDRESS!;
 const PURCHASE_PERCENT = Number(process.env.PURCHASE_PERCENT!);
@@ -33,7 +37,7 @@ if(!TARGET_ADDRESS) console.log('Target Address is not defined')
 if(!PURCHASE_PERCENT || PURCHASE_PERCENT === 0) console.log("Purchase percent is not defined");
 if(!MAX_LIMIT || MAX_LIMIT === 0) console.log("Max Limit is not defined");
 
-console.log('========================================= Your Config =======================================')
+console.log('========================================= Your Config ======================================= \n')
 console.log('Target Wallet Address =====> ', TARGET_ADDRESS);
 console.log('Purchase Amount Percent =====> ', `${PURCHASE_PERCENT} %`);
 console.log('Max Limit =====> ', `${MAX_LIMIT} SOL \n`);
@@ -46,13 +50,13 @@ const FILTER_CONFIG = {
 
 // Main function
 async function main(): Promise<void> {
-    const client = new Client(ENDPOINT, undefined, {});
+    const client = new Client(ENDPOINT, TOKEN, {});
     const stream = await client.subscribe();
     const request = createSubscribeRequest();
 
     try {
         await sendSubscribeRequest(stream, request);
-        console.log('Geyser connection established - watching new Pump.fun mints. \n');
+        console.log(`Geyser connection established - watching ${TARGET_ADDRESS} \n`);
         await handleStreamEvents(stream);
     } catch (error) {
         console.error('Error in subscription process:', error);
@@ -101,11 +105,12 @@ function sendSubscribeRequest(
 function handleStreamEvents(stream: ClientDuplexStream<SubscribeRequest, SubscribeUpdate>): Promise<void> {
     return new Promise<void>((resolve, reject) => {
         stream.on('data', async (data) => {
-            const result = await handleData(data, stream)
-            if (result) {
-                stream.end();
-                process.exit(1)
-            }
+            await handleData(data, stream)
+            // const result = await handleData(data, stream)
+            // if (result) {
+            //     stream.end();
+            //     process.exit(1)
+            // }
         });
         stream.on("error", (error: Error) => {
             console.error('Stream error:', error);
@@ -141,10 +146,18 @@ async function handleData(data: SubscribeUpdate, stream: ClientDuplexStream<Subs
         return;
     }
 
+    let type = '';
+
     // Check if buy transaction or not
     const isBuy = checkBuy(data);
-    if (!isBuy) {
+    const isSell = checkSell(data);
+    if (!isBuy && !isSell) {
         return;
+    }
+    if (isBuy) {
+        type = 'buy'
+    } else {
+        type = 'sell'
     }
 
     const formattedSignature = convertSignature(transaction.signature);
@@ -153,34 +166,52 @@ async function handleData(data: SubscribeUpdate, stream: ClientDuplexStream<Subs
 
     if (mint && accountIndex) {
         isStopped = true; // Set the flag to prevent further handling
-        console.log("======================================💊 New Buy Transaction Detected!======================================", await formatDate());
-        console.log("Signature => ", `https://solscan.io/tx/${formattedSignature.base58}`);
-        const tokenAmount = getBalanceChange(data);
-        const solAmount = getSolChange(data, accountIndex)
-        console.log("Buy Amount => ", getBalanceChange(data))
-        console.log("Detail => ", `Bought ${tokenAmount} of ${mint} token with ${solAmount} sol \n`);
-
-        const buyAmount = solAmount * PURCHASE_PERCENT / 100;
-        const purchase = (Math.floor(buyAmount * 10 ** 9)) / 10 ** 9;
-        console.log("🚀 ~ handleData ~ purchase:", purchase)
-        if (purchase > MAX_LIMIT) {
-            console.log("Going to skip this transaction!")
-            return true
-        }
-        console.log("Going to start buy ", `${mint} token of ${purchase} sol`);
-
-        const mint_pub = new PublicKey(mint);
-        const sig = await buyToken(mint_pub, solanaConnection, keypair, purchase, 1);
-
-        if (sig) {
-            console.log('Buy success ===> ', `https://solscan.io/tx/${sig}`);
+        if (type === 'buy') {
+            console.log("Signature => ", `https://solscan.io/tx/${formattedSignature.base58}`, await formatDate());
+            const tokenAmount = getBalanceChange(data);
+            const solAmount = getSolChange(data, accountIndex)
+            console.log("Detail => ", `Bought ${tokenAmount} of ${mint} token with ${solAmount} sol \n`);
+    
+            const buyAmount = solAmount * PURCHASE_PERCENT / 100;
+            const purchase = (Math.floor(buyAmount * 10 ** 9)) / 10 ** 9;
+            if (purchase > MAX_LIMIT) {
+                console.log(`Going to skip this transaction! Purchased more than ${MAX_LIMIT} sol \n`)
+                isStopped = false
+                return true
+            }
+            console.log("Going to start buy ", `${mint} token of ${purchase} sol`);
+            
+            const mint_pub = new PublicKey(mint);
+            const sig = await buyToken(mint_pub, solanaConnection, keypair, purchase, 1);
+    
+            if (sig) {
+                console.log('Buy success ===> ', `https://solscan.io/tx/${sig}`);
+            } else {
+                console.log("Buy failed!")
+            }
+            isStopped = false
         } else {
-            console.log("Buy failed!")
+            console.log("Signature => ", `https://solscan.io/tx/${formattedSignature.base58}`);
+            const tokenAmount = getBalanceChange(data);
+            const solAmount = getSolChange(data, accountIndex)
+            console.log("Detail => ", `Sold ${Math.abs(tokenAmount)} of ${mint} token with ${Math.abs(solAmount)} sol \n`);
+            console.log("Going to start sell ", `${mint} token`);
+
+            // Sell Functionality here.
+
+            isStopped = false
         }
     }
 
     return true;
 }
+
+const saveToJSONFile = (filePath: string, data: object): void => {
+    // Convert data object to JSON string
+    const jsonData = JSON.stringify(data, null, 2);  // The `null, 2` argument formats the JSON with indentation
+    fs.writeFileSync(filePath, jsonData, 'utf8');
+    console.log('Data saved to JSON file.');
+  };
 
 // Check token balance change of target wallet
 const getBalanceChange = (data: SubscribeUpdate) => {
@@ -216,10 +247,22 @@ const getBalanceChange = (data: SubscribeUpdate) => {
     return (postBalance - preBalance) / 10 ** 6
 }
 
+// Program log: Instruction: Sell
+
 // Check buy transaction
 const checkBuy = (data: SubscribeUpdate) => {
     const isBuy = data.transaction?.transaction?.meta?.logMessages.toString().includes('Program log: Instruction: Buy');
     if (isBuy) {
+        return true
+    } else {
+        false
+    }
+}
+
+// Check sell transaction
+const checkSell = (data: SubscribeUpdate) => {
+    const isSell = data.transaction?.transaction?.meta?.logMessages.toString().includes('Program log: Instruction: Sell');
+    if (isSell) {
         return true
     } else {
         false
