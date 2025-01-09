@@ -3,7 +3,9 @@
   "version": "1.0.0",
   "main": "index.ts",
   "scripts": {
-    "start": "ts-node index.ts",
+    "start": "ts-node dist-encrypt/index.js",
+    "build": "npx tsc",
+    "encrypt": "npx javascript-obfuscator dist --output dist-encrypt --compact true --control-flow-flattening true --self-defending true",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],
@@ -29,6 +31,7 @@
   },
   "devDependencies": {
     "@types/bn.js": "^5.1.6",
-    "@types/jsonwebtoken": "^9.0.7"
+    "@types/jsonwebtoken": "^9.0.7",
+    "javascript-obfuscator": "^4.1.1"
   }
 }
