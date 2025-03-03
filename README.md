@@ -2,7 +2,6 @@
 
 You can monitor target wallet and copy trade automatically using this bot.
 
-
 # 💬Contact Me
 
 If you have any question or something, feel free to reach out me anytime via telegram, discord or twitter.
